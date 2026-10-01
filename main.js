@@ -4,29 +4,54 @@ const canvas = surface.querySelector("canvas");
 const context = canvas.getContext("2d", { alpha: false });
 const background = document.createElement("canvas");
 const backdrop = background.getContext("2d", { alpha: false });
+const glow = document.createElement("canvas");
+const glowContext = glow.getContext("2d");
 
-if (context && backdrop) {
+if (context && backdrop && glowContext) {
   const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
   const TAU = Math.PI * 2;
   const strands = 30;
   const samples = 192;
   const stride = samples + 1;
   const vertexCount = strands * stride;
-  const baseX = new Float32Array(vertexCount);
-  const baseY = new Float32Array(vertexCount);
-  const baseZ = new Float32Array(vertexCount);
+  // Knot centre line and tube offsets, already turned into the fixed viewing pose.
+  const coreX = new Float32Array(stride);
+  const coreY = new Float32Array(stride);
+  const coreZ = new Float32Array(stride);
+  const offsetX = new Float32Array(vertexCount);
+  const offsetY = new Float32Array(vertexCount);
+  const offsetZ = new Float32Array(vertexCount);
   const projectedX = new Float32Array(vertexCount);
   const projectedY = new Float32Array(vertexCount);
   const waveSin = new Float32Array(stride);
   const waveCos = new Float32Array(stride);
   const sampleWave = new Float32Array(stride);
   const strandWidth = new Float32Array(strands);
+  const strandSpread = new Float32Array(strands);
+  const strandLift = new Float32Array(strands);
   const colors = Array.from({ length: strands }, (_, i) =>
     i % 5 === 0 ? "rgba(195,237,255,.72)" : `rgba(75,184,246,${.23 + i % 4 * .055})`
   );
   const trailColors = Array.from({ length: 4 }, (_, segment) => `rgba(193,239,255,${.15 + segment * .16})`);
 
-  // Build the tube once. Only its breathing and projection change per frame.
+  let seed = 7343;
+  function random() {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    return seed / 4294967296;
+  }
+
+  // The knot never turns: one fixed pose is baked into the geometry.
+  const poseSinX = Math.sin(.92), poseCosX = Math.cos(.92);
+  const poseSinY = Math.sin(-.26), poseCosY = Math.cos(-.26);
+  function pose(x, y, z, targetX, targetY, targetZ, index) {
+    const yy = y * poseCosX - z * poseSinX;
+    const zz = y * poseSinX + z * poseCosX;
+    targetX[index] = x * poseCosY + zz * poseSinY;
+    targetY[index] = yy;
+    targetZ[index] = zz * poseCosY - x * poseSinY;
+  }
+
+  // Build the tube once. Breathing, splay and projection change per frame.
   for (let i = 0; i <= samples; i++) {
     const t = i / samples * TAU;
     const c2 = Math.cos(2 * t);
@@ -47,14 +72,12 @@ if (context && backdrop) {
     const nx = by * tz - bz * ty;
     const ny = bz * tx - bx * tz;
     const nz = bx * ty - by * tx;
+    pose(radius * c2 * 76, radius * s2 * 76, .9 * s3 * 76, coreX, coreY, coreZ, i);
     for (let j = 0; j < strands; j++) {
       const u = j / strands * TAU;
-      const a = Math.cos(u) * (.23 + .05 * s3);
-      const b = Math.sin(u) * (.23 + .05 * s3);
-      const index = j * stride + i;
-      baseX[index] = (radius * c2 + a * nx + b * bx) * 76;
-      baseY[index] = (radius * s2 + a * ny + b * by) * 76;
-      baseZ[index] = (.9 * s3 + a * nz + b * bz) * 76;
+      const a = Math.cos(u) * (.23 + .05 * s3) * 76;
+      const b = Math.sin(u) * (.23 + .05 * s3) * 76;
+      pose(a * nx + b * bx, a * ny + b * by, a * nz + b * bz, offsetX, offsetY, offsetZ, j * stride + i);
     }
     // The travelling ripple is sin(3t + phase); keep its sample-dependent half precomputed.
     waveSin[i] = Math.sin(3 * t) * .018;
@@ -62,28 +85,47 @@ if (context && backdrop) {
   }
   for (let j = 0; j < strands; j++) {
     strandWidth[j] = j % 5 === 0 ? .75 : .45;
+    // Each filament leaves the bundle by its own amount, so opening reads as splaying.
+    strandSpread[j] = .7 + random() * 2.3;
+    strandLift[j] = .86 + random() * .28;
   }
 
-  let seed = 7343;
-  function random() {
-    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
-    return seed / 4294967296;
-  }
   const stars = Array.from({ length: 160 }, () => ({ x: random(), y: random(), radius: .2 + random() * .65, opacity: .06 + random() * .28 }));
+  // Depth motes: fixed directions, travelling only along the view axis.
   const particles = Array.from({ length: 100 }, () => {
     const angle = random() * TAU;
     return {
-      angle,
       sin: Math.sin(angle),
       cos: Math.cos(angle),
-      radius: 160 + random() * 160,
-      depth: random() * 120 - 60,
-      speed: (.035 + random() * .055) * (random() < .5 ? -1 : 1),
+      radius: 150 + random() * 160,
+      phase: random(),
+      drift: .004 + random() * .008,
+      travel: 1 + random() * 1.4,
       size: .35 + random() * .8,
       opacity: .15 + random() * .5,
     };
   });
   const hatch = Array.from({ length: 240 }, (_, i) => ({ angle: i / 240 * TAU, radius: 272 + random() * 30, length: 4 + random() * 20 }));
+
+  // One soft light sprite serves the inner chamber and every beacon bloom.
+  glow.width = glow.height = 128;
+  const light = glowContext.createRadialGradient(64, 64, 0, 64, 64, 64);
+  light.addColorStop(0, "rgba(160,226,255,1)");
+  light.addColorStop(.22, "rgba(72,178,246,.42)");
+  light.addColorStop(.6, "rgba(28,110,190,.1)");
+  light.addColorStop(1, "rgba(12,60,110,0)");
+  glowContext.fillStyle = light;
+  glowContext.fillRect(0, 0, 128, 128);
+
+  const FOCAL = 900;
+  const HOLE = .74;
+  const nav = document.querySelector(".particle-links");
+  const beacons = nav ? ["work", "notebook", "contact"].flatMap((name, index) => {
+    const link = nav.querySelector(`.particle-link[data-particle="${name}"]`);
+    // A loose triangle across the opened interior; labels hang below each point.
+    const anchor = [[-.62, -.52], [.7, -.08], [-.12, .66]][index];
+    return link ? [{ link, anchorX: anchor[0], anchorY: anchor[1], x: 0, y: 0, alpha: 0, size: 0, shownX: "", shownY: "", shownSize: "", shownAlpha: "" }] : [];
+  }) : [];
 
   let width = 0;
   let height = 0;
@@ -91,6 +133,10 @@ if (context && backdrop) {
   let scale = 1;
   let centerX = 0;
   let centerY = 0;
+  let inverseHalfWidth = 1;
+  let inverseHalfHeight = 1;
+  let spanX = 0;
+  let spanY = 0;
   let time = 0;
   let lastTime = 0;
   let frame = 0;
@@ -102,9 +148,17 @@ if (context && backdrop) {
   let scrollRange = 1;
   let scrollTarget = 0;
   let progress = 0;
+  let agitation = 0;
+  let ready = null;
+  let cue = "";
   let destroyed = false;
   let pointX = 0;
   let pointY = 0;
+
+  function smoothstep(from, to, value) {
+    const t = value <= from ? 0 : value >= to ? 1 : (value - from) / (to - from);
+    return t * t * (3 - 2 * t);
+  }
 
   function cacheBackground() {
     background.width = canvas.width;
@@ -170,45 +224,108 @@ if (context && backdrop) {
     pointY = projectedY[k] + (projectedY[k + 1] - projectedY[k]) * fraction;
   }
 
+  function setReady(next) {
+    if (next === ready || !nav) return;
+    ready = next;
+    if (!next && nav.contains(document.activeElement)) document.activeElement.blur();
+    nav.dataset.ready = String(next);
+    nav.inert = !next;
+    if (next) nav.removeAttribute("aria-hidden");
+    else nav.setAttribute("aria-hidden", "true");
+  }
+
+  // Beacons rise out of the chamber's depth to fixed resting points; the DOM links follow them.
+  function placeBeacons(reveal) {
+    for (let i = 0; i < beacons.length; i++) {
+      const beacon = beacons[i];
+      const entry = smoothstep(i * .14, i * .14 + .72, reveal);
+      const eased = 1 - (1 - entry) * (1 - entry) * (1 - entry);
+      const depth = FOCAL / (2600 - 1700 * eased);
+      beacon.x = beacon.anchorX * spanX * depth;
+      beacon.y = beacon.anchorY * spanY * depth;
+      beacon.size = depth;
+      beacon.alpha = smoothstep(.15, .85, entry);
+      const alpha = beacon.alpha.toFixed(3);
+      if (alpha !== beacon.shownAlpha) beacon.link.style.setProperty("--alpha", beacon.shownAlpha = alpha);
+      if (!beacon.alpha) continue;
+      const x = `${(centerX + beacon.x).toFixed(1)}px`;
+      const y = `${(centerY + beacon.y).toFixed(1)}px`;
+      const size = depth.toFixed(3);
+      if (x !== beacon.shownX) beacon.link.style.setProperty("--px", beacon.shownX = x);
+      if (y !== beacon.shownY) beacon.link.style.setProperty("--py", beacon.shownY = y);
+      if (size !== beacon.shownSize) beacon.link.style.setProperty("--size", beacon.shownSize = size);
+    }
+    // Clickable only while every beacon is ≥ .95 scale (48px box stays ≥ 44px) and fully visible.
+    if (ready ? reveal < .75 : reveal >= .88) setReady(!ready);
+    else if (ready === null) setReady(false);
+  }
+
   function draw() {
+    // Scroll stages: the aperture opens, the camera moves inside, then the beacons surface.
+    const open = smoothstep(.03, .4, progress);
+    const enter = smoothstep(.28, .82, progress);
+    const reveal = smoothstep(.68, .93, progress);
+    const hole = open * .5 + enter * (HOLE - .5);
+    const camera = FOCAL - enter * 240;
+    const lineScale = scale * (1 + enter * .4);
+    const cueOpacity = (1 - smoothstep(.6, .9, progress)).toFixed(2);
+    if (cueOpacity !== cue) root.style.setProperty("--cue-opacity", cue = cueOpacity);
+    placeBeacons(reveal);
+
     context.setTransform(1, 0, 0, 1, 0, 0);
     context.globalAlpha = 1;
     context.globalCompositeOperation = "source-over";
     context.drawImage(background, 0, 0);
-    // Scroll changes magnification only, from the original view to a 2.5× close-up.
-    const renderScale = pixelRatio * scale * (1 + progress * 1.5);
-    context.setTransform(renderScale, 0, 0, renderScale, centerX * pixelRatio, centerY * pixelRatio);
+    context.setTransform(pixelRatio, 0, 0, pixelRatio, centerX * pixelRatio, centerY * pixelRatio);
+    context.globalCompositeOperation = "lighter";
 
-    const rx = .92 + Math.sin(time * .26) * .22 + pointerY * .3;
-    const ry = -.26 + time * .105 + pointerX * .4;
-    const rz = Math.sin(time * .17) * .14;
-    const sx = Math.sin(rx), cx = Math.cos(rx);
-    const sy = Math.sin(ry), cy = Math.cos(ry);
-    const sz = Math.sin(rz), cz = Math.cos(rz);
+    // Light gathering behind the opening, becoming the interior chamber.
+    const chamber = .1 * open + .22 * enter;
+    if (chamber > 0) {
+      const chamberX = (.18 + hole) * width * .62;
+      const chamberY = (.18 + hole) * height * .62;
+      context.globalAlpha = chamber;
+      context.drawImage(glow, -chamberX, -chamberY, chamberX * 2, chamberY * 2);
+      context.globalAlpha = 1;
+    }
+
     const breath = 1 + Math.sin(time * .85) * .027;
-    const bob = Math.sin(time * .63) * 7;
+    const bob = Math.sin(time * .63) * 7 * scale * (1 - enter * .7);
     const wavePhase = time * 1.1;
-    const waveS = Math.sin(wavePhase);
-    const waveC = Math.cos(wavePhase);
+    const waveGain = 1 + agitation * 4;
+    const waveS = Math.sin(wavePhase) * waveGain;
+    const waveC = Math.cos(wavePhase) * waveGain;
+    const parallaxX = pointerX * 9 * scale;
+    const parallaxY = pointerY * 9 * scale;
     for (let i = 0; i <= samples; i++) sampleWave[i] = waveSin[i] * waveC + waveCos[i] * waveS;
     for (let strand = 0; strand < strands; strand++) {
       const start = strand * stride;
+      const spread = 1 + (open + agitation * .35) * strandSpread[strand];
+      const lift = hole * strandLift[strand];
+      const liftSquared = lift * lift;
       for (let i = 0; i <= samples; i++) {
         const k = start + i;
         const pulse = breath + sampleWave[i];
-        const x = baseX[k] * pulse;
-        const y = baseY[k] * pulse;
-        const z = baseZ[k] * pulse;
-        const yy = y * cx - z * sx;
-        const zz = y * sx + z * cx;
-        const xx = x * cy + zz * sy;
-        const perspective = 900 / (900 - x * sy + zz * cy);
-        projectedX[k] = (xx * cz - yy * sz) * perspective;
-        projectedY[k] = (xx * sz + yy * cz) * perspective + bob;
+        const z = (coreZ[i] + offsetZ[k] * spread) * pulse;
+        const distance = camera - z;
+        const perspective = FOCAL / (distance > 220 ? distance : 220) * scale;
+        const depthShift = perspective / scale - .6;
+        let x = (coreX[i] + offsetX[k] * spread) * pulse * perspective + parallaxX * depthShift;
+        let y = (coreY[i] + offsetY[k] * spread) * pulse * perspective + parallaxY * depthShift + bob;
+        if (liftSquared > 0) {
+          // Radial aperture in viewport-normalised space: the centre clears into an ellipse of radius `lift`.
+          const nx = x * inverseHalfWidth;
+          const ny = y * inverseHalfHeight;
+          const radiusSquared = nx * nx + ny * ny;
+          const push = Math.sqrt((radiusSquared + liftSquared) / (radiusSquared + 1e-9));
+          x *= push;
+          y *= push;
+        }
+        projectedX[k] = x;
+        projectedY[k] = y;
       }
     }
 
-    context.globalCompositeOperation = "lighter";
     context.lineJoin = "round";
     // One combined glow pass; sharp filaments are drawn separately on top.
     context.beginPath();
@@ -218,7 +335,7 @@ if (context && backdrop) {
       for (let i = 1; i <= samples; i++) context.lineTo(projectedX[start + i], projectedY[start + i]);
     }
     context.strokeStyle = "rgba(45,160,255,.11)";
-    context.lineWidth = 4;
+    context.lineWidth = 4 * lineScale;
     context.shadowColor = "#22aaff";
     context.shadowBlur = 12 * pixelRatio;
     context.stroke();
@@ -230,12 +347,12 @@ if (context && backdrop) {
       context.moveTo(projectedX[start], projectedY[start]);
       for (let i = 1; i <= samples; i++) context.lineTo(projectedX[start + i], projectedY[start + i]);
       context.strokeStyle = colors[strand];
-      context.lineWidth = strandWidth[strand];
+      context.lineWidth = strandWidth[strand] * lineScale;
       context.stroke();
     }
 
     // Small, travelling highlights make the surface feel like flowing light, not a rigid wireframe.
-    context.lineWidth = .95;
+    context.lineWidth = .95 * lineScale;
     context.fillStyle = "#d9f6ff";
     for (let stream = 0; stream < 8; stream++) {
       const start = (stream * 4) % strands * stride;
@@ -258,32 +375,59 @@ if (context && backdrop) {
       }
       samplePoint(start, head);
       context.beginPath();
-      context.arc(pointX, pointY, 1.05, 0, TAU);
+      context.arc(pointX, pointY, 1.05 * lineScale, 0, TAU);
       context.fill();
     }
 
-    context.lineWidth = .45;
-    context.strokeStyle = "#639cc239";
-    context.beginPath();
-    context.ellipse(0, 0, 275, 103, -.5 + Math.sin(time * .15) * .13, 0, TAU);
-    context.stroke();
+    // The fixed orbit line widens with the aperture and dissolves once inside.
+    if (enter < 1) {
+      const ring = scale * (1 + open * .6);
+      context.globalAlpha = 1 - enter;
+      context.lineWidth = .45 * scale;
+      context.strokeStyle = "#639cc239";
+      context.beginPath();
+      context.ellipse(0, 0, 275 * ring, 103 * ring, -.5, 0, TAU);
+      context.stroke();
+    }
 
-    // Twinkle and the doubled angle reuse each particle's own sin/cos.
+    // Motes drift slowly toward the viewer; scrolling carries them past the camera.
     const twinkleS = Math.sin(time * .9);
     const twinkleC = Math.cos(time * .9);
-    const parallaxX = pointerX * 9;
-    const parallaxY = pointerY * 9;
+    const far = 1100 + enter * 500;
+    const near = 700 - enter * 540;
+    const flatten = .7 + enter * .3;
+    const moteLift = hole * .55;
+    const moteLiftSquared = moteLift * moteLift;
     context.fillStyle = "#b0e4ff";
     for (const particle of particles) {
-      const angle = particle.angle + time * particle.speed;
-      const sin = Math.sin(angle);
-      const cos = Math.cos(angle);
-      const radius = particle.radius;
-      const perspective = 800 / (800 + particle.depth + 160 * sin * cos);
-      context.globalAlpha = particle.opacity * (.72 + .28 * (twinkleS * particle.cos + twinkleC * particle.sin));
+      let phase = particle.phase + time * particle.drift + progress * particle.travel;
+      phase -= Math.floor(phase);
+      const perspective = FOCAL / (far - phase * (far - near));
+      const fade = 4 * phase * (1 - phase);
+      let x = particle.cos * particle.radius * perspective * scale + parallaxX * perspective;
+      let y = particle.sin * particle.radius * flatten * perspective * scale + parallaxY * perspective;
+      if (moteLiftSquared > 0) {
+        const nx = x * inverseHalfWidth;
+        const ny = y * inverseHalfHeight;
+        const radiusSquared = nx * nx + ny * ny;
+        const push = Math.sqrt((radiusSquared + moteLiftSquared) / (radiusSquared + 1e-9));
+        x *= push;
+        y *= push;
+      }
+      const size = particle.size * Math.sqrt(perspective);
+      context.globalAlpha = particle.opacity * fade * (.72 + .28 * (twinkleS * particle.cos + twinkleC * particle.sin));
       context.beginPath();
-      context.arc(cos * radius * perspective + parallaxX, sin * radius * .7 * perspective + parallaxY, particle.size, 0, TAU);
+      context.arc(x, y, size < 3 ? size : 3, 0, TAU);
       context.fill();
+    }
+
+    // Bloom under each beacon, breathing gently in place.
+    for (let i = 0; i < beacons.length; i++) {
+      const beacon = beacons[i];
+      if (!beacon.alpha) continue;
+      const radius = 54 * beacon.size * (1 + Math.sin(time * 1.4 + i * 2.1) * .06);
+      context.globalAlpha = beacon.alpha * .55;
+      context.drawImage(glow, beacon.x - radius, beacon.y - radius, radius * 2, radius * 2);
     }
     context.globalAlpha = 1;
     context.globalCompositeOperation = "source-over";
@@ -297,6 +441,7 @@ if (context && backdrop) {
     if (reduced) {
       // No autonomous motion: show the exact scroll state once, then stop.
       progress = scrollTarget;
+      agitation = 0;
       draw();
       return;
     }
@@ -304,7 +449,11 @@ if (context && backdrop) {
     const follow = 1 - Math.exp(-dt * 4.5);
     pointerX += (targetX - pointerX) * follow;
     pointerY += (targetY - pointerY) * follow;
-    progress += (scrollTarget - progress) * (1 - Math.exp(-dt * 5));
+    const lag = scrollTarget - progress;
+    progress += lag * (1 - Math.exp(-dt * 5));
+    // Scrolling ruffles the filaments; the ruffle settles once the scene catches up.
+    const disturbance = Math.min(1, Math.abs(lag) * 10);
+    agitation = Math.max(disturbance, agitation * Math.exp(-dt * 2.2));
     draw();
     frame = requestAnimationFrame(tick);
   }
@@ -342,6 +491,12 @@ if (context && backdrop) {
       centerX = width * .5;
       centerY = height * .48;
       scale = Math.min(width / 610, height / 690, 1.3);
+      inverseHalfWidth = 2 / Math.max(width, 1);
+      inverseHalfHeight = 2 / Math.max(height, 1);
+      // Beacon spread: inside the opened hole, with room for labels below and 72px side margins.
+      spanX = Math.max(0, Math.min(centerX - 72, centerX * HOLE * .8, 360));
+      spanY = Math.max(0, Math.min(centerY - 104, height * .5 * HOLE * .8, 230));
+      for (const beacon of beacons) beacon.shownX = beacon.shownY = "";
       cacheBackground();
       // Resizing clears the bitmap; repaint now so no blank frame is presented.
       draw();
@@ -368,6 +523,7 @@ if (context && backdrop) {
     reduced = reducedMotion.matches;
     targetX = pointerX = targetY = pointerY = 0;
     progress = scrollTarget;
+    agitation = 0;
     stop();
     render();
   }, options);

@@ -16,10 +16,11 @@
   font-synthesis: none;
   background: #030a11;
   color: #cceaff;
-  scrollbar-width: thin;
-  scrollbar-color: #173c55 #030a11;
+  scrollbar-width: none;
   -webkit-font-smoothing: antialiased;
 }
+/* Hide the scrollbar only; native wheel, touch and keyboard scrolling stay intact. */
+:root::-webkit-scrollbar { display: none; width: 0; height: 0; }
 
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 280px; }
@@ -50,26 +51,143 @@ canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%
 .still { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(85vw, 65svh, 700px); opacity: .75; }
 .still[hidden] { display: none; }
 
-.footer {
+/* Without the field: a compact footer row of links. */
+.particle-links {
   position: fixed;
   z-index: 2;
   bottom: max(24px, env(safe-area-inset-bottom));
   left: max(24px, env(safe-area-inset-left));
   right: max(24px, env(safe-area-inset-right));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(28px, 4vw, 58px);
 }
-.footer nav { display: flex; align-items: center; justify-content: center; gap: clamp(28px, 4vw, 58px); }
-.footer a { display: flex; align-items: center; gap: 10px; min-height: 44px; font-size: 11px; line-height: 1.5; color: #a3c6dd; transition: color .2s; }
-.footer a span { color: #578aac; transition: color .2s, transform .2s; }
-.footer a:hover { color: #f0fbff; }
-.footer a:hover span { color: #9addff; transform: translate(2px,-2px); }
+.particle-link { display: flex; align-items: center; gap: 10px; min-height: 44px; font-size: 11px; line-height: 1.5; color: #a3c6dd; transition: color .2s; }
+.particle-orb {
+  position: relative;
+  flex: none;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #e6f8ff;
+  box-shadow: 0 0 4px 1px rgba(150, 221, 255, .55);
+}
+.particle-label > span { margin-left: 8px; color: #578aac; display: inline-block; transition: color .2s, transform .2s; }
+.particle-link:hover, .particle-link:focus-visible { color: #f0fbff; }
+.particle-link:hover .particle-label > span,
+.particle-link:focus-visible .particle-label > span { color: #9addff; transform: translate(2px, -2px); }
+
+/* With the field: the renderer places each link as a luminous particle. */
+html.has-field .particle-links {
+  z-index: 1;
+  inset: 0;
+  display: block;
+  overflow: hidden;
+  overflow: clip;
+  pointer-events: none;
+}
+html.has-field .particle-link {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  color: #b6dcf2;
+  opacity: var(--alpha, 0);
+  transform: translate3d(var(--px, 0px), var(--py, 0px), 0) translate(-50%, -50%) scale(var(--size, 1));
+  will-change: transform, opacity;
+  pointer-events: none;
+}
+html.has-field .particle-links[data-ready="true"] .particle-link { pointer-events: auto; }
+html.has-field .particle-link:hover,
+html.has-field .particle-link:focus-visible { color: #f0fbff; outline: none; }
+html.has-field .particle-orb {
+  width: 7px;
+  height: 7px;
+  background: radial-gradient(circle, #fff 0 38%, #c9f0ff 72%, #86d6ff);
+  box-shadow:
+    0 0 4px 1px rgba(214, 244, 255, .9),
+    0 0 14px 3px rgba(98, 198, 248, .42),
+    0 0 36px 9px rgba(36, 132, 204, .16);
+}
+html.has-field .particle-orb::before,
+html.has-field .particle-orb::after { content: ""; position: absolute; border-radius: 50%; }
+/* Thin orbit ring: the visible affordance on hover and focus. */
+html.has-field .particle-orb::before {
+  inset: -10px;
+  border: 1px solid rgba(131, 217, 255, .22);
+  transition: transform .25s ease, border-color .25s ease;
+}
+/* Soft halo breathing; pseudo-element only, so the hit target never moves. */
+html.has-field .particle-orb::after {
+  inset: -7px;
+  background: radial-gradient(circle, rgba(131, 217, 255, .26), rgba(131, 217, 255, 0) 70%);
+  animation: particle-breathe 4.2s ease-in-out infinite;
+}
+html.has-field .particle-link[data-particle="notebook"] .particle-orb::after { animation-delay: -1.4s; }
+html.has-field .particle-link[data-particle="contact"] .particle-orb::after { animation-delay: -2.8s; }
+html.has-field .particle-link:hover .particle-orb::before { transform: scale(1.18); border-color: rgba(170, 230, 255, .65); }
+html.has-field .particle-link:focus-visible .particle-orb::before { transform: scale(1.28); border-color: #96ddff; }
+html.has-field .particle-label {
+  position: absolute;
+  top: calc(100% - 8px);
+  left: 50%;
+  padding: 2px 0 8px;
+  white-space: nowrap;
+  letter-spacing: .02em;
+  text-shadow: 0 0 2px #030a11, 0 0 10px rgba(3, 10, 17, .9);
+  transform: translateX(-50%);
+  transition: color .2s;
+}
+/* The arrow trails the word so the word itself sits centered under the particle. */
+html.has-field .particle-label > span { position: absolute; left: 100%; margin-left: 6px; }
+html.has-field .particle-link:focus-visible .particle-label { text-decoration: underline 1px; text-underline-offset: 4px; }
+
+/* Scroll cue: only meaningful once the field can be entered. */
+.scroll-cue { display: none; }
+html.has-field .scroll-cue {
+  position: fixed;
+  z-index: 1;
+  bottom: max(28px, calc(env(safe-area-inset-bottom) + 16px));
+  left: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  font-size: 10px;
+  line-height: 1;
+  letter-spacing: .12em;
+  color: #7fa9c6;
+  opacity: var(--cue-opacity, 1);
+  transform: translateX(-50%);
+  pointer-events: none;
+  user-select: none;
+}
+.scroll-cue svg { display: block; width: 10px; height: 24px; color: #83d9ff; animation: cue-drift 2.6s ease-in-out infinite; }
+
+@keyframes particle-breathe {
+  0%, 100% { opacity: .35; transform: scale(.85); }
+  50% { opacity: .9; transform: scale(1.2); }
+}
+@keyframes cue-drift {
+  0%, 100% { opacity: .5; transform: translateY(-2px); }
+  50% { opacity: 1; transform: translateY(2px); }
+}
 
 @media (max-width: 480px) {
   h1 { font-size: 13px; }
   .header { top: max(16px, env(safe-area-inset-top)); }
-  .footer { bottom: max(16px, env(safe-area-inset-bottom)); }
-  .footer nav { gap: 28px; }
-  .footer a { gap: 6px; }
+  .particle-links { bottom: max(16px, env(safe-area-inset-bottom)); gap: 28px; }
+  .particle-link { gap: 6px; }
+  html.has-field .scroll-cue { bottom: max(22px, calc(env(safe-area-inset-bottom) + 12px)); }
 }
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { transition: none !important; scroll-behavior: auto !important; }
+  *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
+}
+@media (forced-colors: active) {
+  .particle-orb { background: LinkText; forced-color-adjust: none; }
+  html.has-field .particle-orb::before { border-color: LinkText; }
 }
