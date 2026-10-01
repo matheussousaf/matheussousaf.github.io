@@ -2,7 +2,7 @@
 
 Static GitHub Pages homepage: https://matheussousaf.github.io/
 
-Minimal blue-light field: handle, artwork, and links to GitHub, the notebook, and email. Native scrolling controls the sculpture while the artwork and navigation stay in view.
+Minimal blue-light field: handle, artwork, and links to GitHub, the notebook, and email. Native scrolling zooms the sculpture while the artwork and navigation stay in view.
 
 ## Local preview
 
@@ -16,10 +16,10 @@ Open http://localhost:4173/. No build step or package install.
 
 - `index.html`: profile links, metadata, and the no-JavaScript illustration.
 - `style.css`: fixed-viewport artwork with a native scrolling document.
-- `main.js`: display-synchronized canvas field with precomputed geometry, cached background, continuous highlights, and eased scroll response.
+- `main.js`: display-synchronized canvas field with precomputed geometry, cached background, continuous highlights, and eased scroll zoom.
 - `favicon.svg`: blue orbital mark.
 - `fonts/`: a 15 KB self-hosted [JetBrains Mono Nerd Font Mono](https://github.com/ryanoasis/nerd-fonts/releases/tag/v3.5.1) subset; its SIL Open Font License is included in `fonts/OFL.txt`.
 
-Wheel, trackpad, touch, and native keyboard scrolling rotate and reshape the field. Input listeners are passive; there is no click interaction or pause control. Reduced motion disables autonomous animation and easing, drawing only when scrolling or resizing changes the view. Hidden tabs suspend rendering. Without JavaScript, navigation and a static illustration remain available on a single-screen page.
+Wheel, trackpad, touch, and native keyboard scrolling zoom the field from its original size to a 2.5× close-up: scroll down to zoom in and up to zoom out. Scrolling changes only magnification, not the shape or orientation; ambient motion remains independent. Input listeners are passive; there is no click interaction or pause control. Reduced motion disables autonomous animation and easing, drawing only when scrolling or resizing changes the view. Hidden tabs suspend rendering. Without JavaScript, navigation and a static illustration remain available on a single-screen page.
 
 GitHub Pages publishes the repository root from `master`; `.nojekyll` keeps the site a plain static deployment.

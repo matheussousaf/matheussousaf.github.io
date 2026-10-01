@@ -20,15 +20,13 @@ if (context && backdrop) {
   const waveSin = new Float32Array(stride);
   const waveCos = new Float32Array(stride);
   const sampleWave = new Float32Array(stride);
-  const strandSpread = new Float32Array(strands);
-  const strandSlide = new Float32Array(strands);
   const strandWidth = new Float32Array(strands);
   const colors = Array.from({ length: strands }, (_, i) =>
     i % 5 === 0 ? "rgba(195,237,255,.72)" : `rgba(75,184,246,${.23 + i % 4 * .055})`
   );
   const trailColors = Array.from({ length: 4 }, (_, segment) => `rgba(193,239,255,${.15 + segment * .16})`);
 
-  // Build the tube once. Only its breathing, displacement and projection change per frame.
+  // Build the tube once. Only its breathing and projection change per frame.
   for (let i = 0; i <= samples; i++) {
     const t = i / samples * TAU;
     const c2 = Math.cos(2 * t);
@@ -63,8 +61,6 @@ if (context && backdrop) {
     waveCos[i] = Math.cos(3 * t) * .018;
   }
   for (let j = 0; j < strands; j++) {
-    strandSpread[j] = .15 + .09 * Math.sin(j * 2.4);
-    strandSlide[j] = Math.sin(j * .8) * 55;
     strandWidth[j] = j % 5 === 0 ? .75 : .45;
   }
 
@@ -106,7 +102,6 @@ if (context && backdrop) {
   let scrollRange = 1;
   let scrollTarget = 0;
   let progress = 0;
-  let energy = 0;
   let destroyed = false;
   let pointX = 0;
   let pointY = 0;
@@ -180,31 +175,28 @@ if (context && backdrop) {
     context.globalAlpha = 1;
     context.globalCompositeOperation = "source-over";
     context.drawImage(background, 0, 0);
-    context.setTransform(pixelRatio * scale, 0, 0, pixelRatio * scale, centerX * pixelRatio, centerY * pixelRatio);
+    // Scroll changes magnification only, from the original view to a 2.5× close-up.
+    const renderScale = pixelRatio * scale * (1 + progress * 1.5);
+    context.setTransform(renderScale, 0, 0, renderScale, centerX * pixelRatio, centerY * pixelRatio);
 
-    // Scroll turns the knot once across the page and lets it bloom open, settling partly near the end.
-    const unfurl = Math.sin(progress * Math.PI * .8);
-    const spread = unfurl * .7 + energy * .45;
-    const rx = .92 + Math.sin(time * .26) * .22 + pointerY * .3 + unfurl * .28;
-    const ry = -.26 + time * .105 + pointerX * .4 + progress * TAU;
-    const rz = Math.sin(time * .17) * .14 - progress * .35;
+    const rx = .92 + Math.sin(time * .26) * .22 + pointerY * .3;
+    const ry = -.26 + time * .105 + pointerX * .4;
+    const rz = Math.sin(time * .17) * .14;
     const sx = Math.sin(rx), cx = Math.cos(rx);
     const sy = Math.sin(ry), cy = Math.cos(ry);
     const sz = Math.sin(rz), cz = Math.cos(rz);
-    const breath = 1 + Math.sin(time * .85) * .027 + unfurl * .05;
+    const breath = 1 + Math.sin(time * .85) * .027;
     const bob = Math.sin(time * .63) * 7;
     const wavePhase = time * 1.1;
     const waveS = Math.sin(wavePhase);
     const waveC = Math.cos(wavePhase);
     for (let i = 0; i <= samples; i++) sampleWave[i] = waveSin[i] * waveC + waveCos[i] * waveS;
     for (let strand = 0; strand < strands; strand++) {
-      const expansion = breath + spread * strandSpread[strand];
-      const slide = spread * strandSlide[strand];
       const start = strand * stride;
       for (let i = 0; i <= samples; i++) {
         const k = start + i;
-        const pulse = expansion + sampleWave[i];
-        const x = baseX[k] * pulse + slide;
+        const pulse = breath + sampleWave[i];
+        const x = baseX[k] * pulse;
         const y = baseY[k] * pulse;
         const z = baseZ[k] * pulse;
         const yy = y * cx - z * sx;
@@ -226,7 +218,7 @@ if (context && backdrop) {
       for (let i = 1; i <= samples; i++) context.lineTo(projectedX[start + i], projectedY[start + i]);
     }
     context.strokeStyle = "rgba(45,160,255,.11)";
-    context.lineWidth = 4 + spread * 2;
+    context.lineWidth = 4;
     context.shadowColor = "#22aaff";
     context.shadowBlur = 12 * pixelRatio;
     context.stroke();
@@ -273,22 +265,20 @@ if (context && backdrop) {
     context.lineWidth = .45;
     context.strokeStyle = "#639cc239";
     context.beginPath();
-    context.ellipse(0, 0, 275 + spread * 14, 103, -.5 + Math.sin(time * .15) * .13 + progress * .4, 0, TAU);
+    context.ellipse(0, 0, 275, 103, -.5 + Math.sin(time * .15) * .13, 0, TAU);
     context.stroke();
 
-    // Particles swirl with the scroll; twinkle and the doubled angle reuse each particle's own sin/cos.
-    const swirl = progress * 1.2;
-    const orbit = spread * 34;
+    // Twinkle and the doubled angle reuse each particle's own sin/cos.
     const twinkleS = Math.sin(time * .9);
     const twinkleC = Math.cos(time * .9);
     const parallaxX = pointerX * 9;
     const parallaxY = pointerY * 9;
     context.fillStyle = "#b0e4ff";
     for (const particle of particles) {
-      const angle = particle.angle + time * particle.speed + swirl;
+      const angle = particle.angle + time * particle.speed;
       const sin = Math.sin(angle);
       const cos = Math.cos(angle);
-      const radius = particle.radius + orbit;
+      const radius = particle.radius;
       const perspective = 800 / (800 + particle.depth + 160 * sin * cos);
       context.globalAlpha = particle.opacity * (.72 + .28 * (twinkleS * particle.cos + twinkleC * particle.sin));
       context.beginPath();
@@ -314,11 +304,7 @@ if (context && backdrop) {
     const follow = 1 - Math.exp(-dt * 4.5);
     pointerX += (targetX - pointerX) * follow;
     pointerY += (targetY - pointerY) * follow;
-    const previous = progress;
     progress += (scrollTarget - progress) * (1 - Math.exp(-dt * 5));
-    // Speed lends the strands a bounded surge of energy that rises quickly and fades gently.
-    const surge = dt > 0 ? 1 - Math.exp(-Math.abs(progress - previous) / dt * .8) : 0;
-    energy += (surge - energy) * (1 - Math.exp(-dt * (surge > energy ? 6 : 1.8)));
     draw();
     frame = requestAnimationFrame(tick);
   }
@@ -338,10 +324,6 @@ if (context && backdrop) {
   function readScroll() {
     const position = scrollY / scrollRange;
     scrollTarget = position < 0 ? 0 : position > 1 ? 1 : position;
-  }
-  function settle() {
-    progress = scrollTarget;
-    energy = 0;
   }
   function measureScroll() {
     scrollRange = Math.max(1, root.scrollHeight - innerHeight);
@@ -385,7 +367,7 @@ if (context && backdrop) {
   reducedMotion.addEventListener("change", () => {
     reduced = reducedMotion.matches;
     targetX = pointerX = targetY = pointerY = 0;
-    settle();
+    progress = scrollTarget;
     stop();
     render();
   }, options);
@@ -402,13 +384,13 @@ if (context && backdrop) {
   }, options);
   addEventListener("pageshow", () => {
     layout();
-    if (!reduced) settle();
+    if (!reduced) progress = scrollTarget;
     refresh();
   }, options);
 
   root.classList.add("has-field");
   measureScroll();
-  settle();
+  progress = scrollTarget;
   layout();
   observer.observe(surface);
   observer.observe(root);
