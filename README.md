@@ -1,8 +1,8 @@
-# Matheus Figueirêdo
+# matheussousaf
 
 Static GitHub Pages homepage: https://matheussousaf.github.io/
 
-The selected design is a minimal blue-light field: name, artwork, and links to GitHub, the notebook, and email. The alternate sketches and their switcher have been removed.
+Minimal blue-light field: handle, artwork, and links to GitHub, the notebook, and email. Native scrolling controls the sculpture while the artwork and navigation stay in view.
 
 ## Local preview
 
@@ -10,15 +10,16 @@ The selected design is a minimal blue-light field: name, artwork, and links to G
 python3 -m http.server 4173 --bind 127.0.0.1
 ```
 
-Open http://localhost:4173/. No build step or dependencies.
+Open http://localhost:4173/. No build step or package install.
 
 ## Files and behavior
 
-- `index.html`: accessible controls, profile links, metadata, and the no-JavaScript illustration.
-- `style.css`: full-viewport responsive layout.
-- `main.js`: canvas field with precomputed geometry, cached background, flowing highlights, pointer response, and click/touch pulses.
+- `index.html`: profile links, metadata, and the no-JavaScript illustration.
+- `style.css`: fixed-viewport artwork with a native scrolling document.
+- `main.js`: display-synchronized canvas field with precomputed geometry, cached background, continuous highlights, and eased scroll response.
 - `favicon.svg`: blue orbital mark.
+- `fonts/`: a 15 KB self-hosted [JetBrains Mono Nerd Font Mono](https://github.com/ryanoasis/nerd-fonts/releases/tag/v3.5.1) subset; its SIL Open Font License is included in `fonts/OFL.txt`.
 
-The pause control stops animation. Reduced motion starts with a still frame; the artwork button remains usable with touch or the keyboard. Hidden tabs suspend rendering. Navigation and a static illustration remain available without JavaScript.
+Wheel, trackpad, touch, and native keyboard scrolling rotate and reshape the field. Input listeners are passive; there is no click interaction or pause control. Reduced motion disables autonomous animation and easing, drawing only when scrolling or resizing changes the view. Hidden tabs suspend rendering. Without JavaScript, navigation and a static illustration remain available on a single-screen page.
 
 GitHub Pages publishes the repository root from `master`; `.nojekyll` keeps the site a plain static deployment.
